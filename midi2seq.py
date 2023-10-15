@@ -141,7 +141,7 @@ def segment(seq, maxlen=50):
         i += inc
     return np.stack(s, axis=0)
 
-def process_midi_seq(all_midis=None, datadir='data', n=10000, maxlen=50):
+def process_midi_seq(all_midis=None, datadir='data', n=10000, maxlen=50, rd_seed=1234):
     '''
     Process a list of midis, convert them to sequences and segment sequences into segments of length max_len
     :param all_midis: the list of midis. If None, midis will be loaded from files
@@ -152,7 +152,12 @@ def process_midi_seq(all_midis=None, datadir='data', n=10000, maxlen=50):
     '''
     if all_midis is None:
         all_midis = glob.glob(datadir+'/maestro-v1.0.0/**/*.midi')
-        random.seed()    # for debug purpose, you can pass a fix number when calling seed()
+        
+        if rd_seed is not None:
+            random.seed(rd_seed)
+        else:
+            random.seed()   # for debug purpose, you can pass a fix number when calling seed()
+
         random.shuffle(all_midis)
 
     data = []
@@ -166,12 +171,13 @@ def process_midi_seq(all_midis=None, datadir='data', n=10000, maxlen=50):
 
     return np.vstack(data)
 
-def random_piano(n=100):
+def random_piano(n=100, rd_seed=1234):
     '''
     Generate random piano note
     :param n: # of notes to be generated
     :return: midi object with the notes
     '''
+    random.seed(rd_seed)
     midi = pretty_midi.PrettyMIDI()
     piano = pretty_midi.Instrument(program=0, is_drum=False, name='piano')
     midi.instruments.append(piano)
