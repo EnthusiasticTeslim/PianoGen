@@ -7,11 +7,14 @@ import os, sys, time, datetime, pickle, copy, random, glob, logging
 
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import train_test_split
+from sklearn.model_selection import KFold
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data.sampler import SubsetRandomSampler
+
 from midi2seq import piano2seq, random_piano, process_midi_seq
 from torch.utils.data import DataLoader, TensorDataset
 from model_base import ComposerBase, CriticBase
@@ -283,6 +286,14 @@ class Critic(CriticBase):
             cv_index += 1   # increment cv index
         
         return loss_accum_train.avg
+
+# Test code
+
+processor = MidiDataProcessor(data_directory='.')
+train_loader, test_loader = processor.prepare_data()
+
+critic = Critic(load_trained=False)
+critic.train(train_loader, epochs=100)
 
 ##*************************Task 2*********************#
 #   (Class "Composer" should be a subclass of the class ComposerBase. You must use the exact class name.) 
