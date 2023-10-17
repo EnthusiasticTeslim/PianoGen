@@ -34,99 +34,13 @@ from google_drive_downloader import GoogleDriveDownloader as gdd
 #   Train the model in this class using both the good and the bad examples.
 
 
-## Training data
-## Training data
+## Helper functions
+# Convert labels to one-hot encoding
 def convert_labels(labels):
     converted = torch.zeros(labels.size(0), 2)
     converted[labels.view(-1) == 1, 0] = 1
     converted[labels.view(-1) == 0, 1] = 1
     return converted
-class MidiDataProcessor:
-
-    def __init__(self, data_directory, maxlen=100, test_size=0.2, random_state=42, batch_size=32):
-        self.data_directory = data_directory
-        self.maxlen = maxlen
-        self.test_size = test_size
-        self.random_state = random_state
-        self.batch_size = batch_size
-
-    def __get__(self, idx):
-        return self.all_data[idx], self.all_labels[idx]
-
-    def prepare_data(self):
-        device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
-        all_midis = glob.glob(f'{self.data_directory}/maestro-v1.0.0/**/*.midi')
-
-        good_music_midi = process_midi_seq(all_midis=all_midis, datadir=self.data_directory, n=10000, maxlen=self.maxlen)
-        bad_music_midi = [random_piano(n=self.maxlen) for _ in range(len(all_midis))]
-        bad_music_midi = process_midi_seq(all_midis=bad_music_midi, datadir=self.data_directory, n=10000, maxlen=self.maxlen)
-
-        good_music = torch.tensor(good_music_midi, dtype=torch.float32)
-        bad_music = torch.tensor(bad_music_midi, dtype=torch.float32)
-
-        good_labels = torch.ones((len(good_music), 1))
-        bad_labels = torch.zeros((len(bad_music), 1))
-
-        self.all_data = torch.cat([good_music, bad_music], dim=0)
-        self.all_labels = torch.cat([good_labels, bad_labels], dim=0)
-
-        features_train, features_test, label_train, label_test = train_test_split(
-                                                                                    self.all_data, self.all_labels,
-                                                                                    test_size=self.test_size,
-                                                                                    random_state=self.random_state,
-                                                                                    shuffle=True)
-        
-        # label_train = convert_labels(label_train)
-        # label_test = convert_labels(label_test)
-
-        features_train = torch.Tensor(features_train).to(device)
-        features_test = torch.Tensor(features_test).to(device)
-
-        label_train = torch.Tensor(label_train).to(device)
-        label_test = torch.Tensor(label_test).to(device)
-
-        train_dataset = TensorDataset(features_train, label_train)
-        test_dataset = TensorDataset(features_test, label_test)
-
-        self.train_loader = DataLoader(train_dataset, shuffle=True, batch_size=self.batch_size)
-        self.test_loader = DataLoader(test_dataset, shuffle=True, batch_size=self.batch_size)
-
-        return self.train_loader, self.test_loader
-
-    def __repr__(self):
-        return f'MidiDataProcessor(data_directory={self.data_directory!r}, maxlen={self.maxlen}, test_size={self.test_size}, random_state={self.random_state}, batch_size={self.batch_size}, train_loader size={len(self.train_loader.dataset)}, test_loader size={len(self.test_loader.dataset)})'
-
-# Critic model
-# n x max_len -> embedding -> n x nax_len x max_len - 1 -> LSTM (with hidden size=3)-> n x 2
-class LSTMCritic(nn.Module):
-    def __init__(self, num_embeddings=382, embedding_dim=100, hidden_dim=128, num_layers=3, n_classes=2):
-        super(LSTMCritic, self).__init__()
-        self.num_embeddings = num_embeddings # number of unique words in the vocabulary
-        self.embedding_dim = embedding_dim #
-        self.hidden_dim = hidden_dim # Hidden dimension
-        self.num_layers = num_layers # Number of LSTM layers
-        self.device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
-        
-        self.embedding = nn.Embedding(self.num_embeddings, self.embedding_dim).to(self.device)
-        self.lstm = nn.LSTM(self.embedding_dim, self.hidden_dim, num_layers=self.num_layers, batch_first=True, dropout=0.2).to(self.device)
-        self.fc = nn.Linear(self.hidden_dim, n_classes).to(self.device)
-        
-
-    def forward(self, x):
-        # Embedding layer
-        x = self.embedding(x).to(self.device)
-        # LSTM forward pass
-        batch_size = x.size(0)
-        # Initialize hidden and cell states with zeros
-        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)
-        c0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)
-        lstm_out, _ = self.lstm(x, (h0, c0))
-        # Decode the hidden state of the last time step
-        out = lstm_out[:, -1, :]
-        # Linear layer
-        out = self.fc(out)
-        return out
-
 # Accumulation meter
 class AccumulationMeter(object):
     """Computes and stores the average and current value"""
@@ -162,6 +76,97 @@ class EarlyStopping:
             self.counter +=1
             if self.counter >= self.tolerance:  
                 self.early_stop = True
+# Training data
+class MidiCriticDataProcessor:
+
+    def __init__(self, data_directory, maxlen=200, test_size=0.2, random_state=42, batch_size=32):
+        self.data_directory = data_directory
+        self.maxlen = maxlen
+        self.test_size = test_size
+        self.random_state = random_state
+        self.batch_size = batch_size
+
+    def __get__(self, idx):
+        return self.all_data[idx], self.all_labels[idx]
+
+    def prepare_data(self):
+        device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+        all_midis = glob.glob(f'{self.data_directory}/maestro-v1.0.0/**/*.midi')
+
+        good_music_midi = process_midi_seq(all_midis=all_midis, datadir=self.data_directory, n=10000, maxlen=self.maxlen)
+        bad_music_midi = [random_piano(n=self.maxlen) for _ in range(len(all_midis))]
+        bad_music_midi = process_midi_seq(all_midis=bad_music_midi, datadir=self.data_directory, n=10000, maxlen=self.maxlen)
+
+        good_music = torch.tensor(good_music_midi, dtype=torch.float32)
+        bad_music = torch.tensor(bad_music_midi, dtype=torch.float32)
+
+        good_labels = torch.ones((len(good_music), 1))
+        bad_labels = torch.zeros((len(bad_music), 1))
+
+        self.all_data = torch.cat([good_music, bad_music], dim=0)
+        self.all_labels = torch.cat([good_labels, bad_labels], dim=0)
+
+        features_train, features_test, label_train, label_test = train_test_split(
+                                                                                    self.all_data, self.all_labels,
+                                                                                    test_size=self.test_size,
+                                                                                    random_state=self.random_state,
+                                                                                    shuffle=True)
+        
+        # label_train = convert_labels(label_train)
+        # label_test = convert_labels(label_test)
+        # print(f"Shape of Training data: {features_train.shape}")
+        # print(f"Shape of Training labels: {label_train.shape}")
+        # print(f"Shape of Test data: {features_test.shape}")
+        # print(f"Shape of Test labels: {label_test.shape}")
+
+        features_train = torch.Tensor(features_train).to(device)
+        features_test = torch.Tensor(features_test).to(device)
+
+        label_train = torch.Tensor(label_train).to(device)
+        label_test = torch.Tensor(label_test).to(device)
+
+        train_dataset = TensorDataset(features_train, label_train)
+        test_dataset = TensorDataset(features_test, label_test)
+
+        self.train_loader = DataLoader(train_dataset, shuffle=True, batch_size=self.batch_size)
+        self.test_loader = DataLoader(test_dataset, shuffle=True, batch_size=self.batch_size)
+
+        return self.train_loader, self.test_loader
+
+    def __repr__(self):
+        return f'MidiDataProcessor(data_directory={self.data_directory!r}, maxlen={self.maxlen}, test_size={self.test_size}, random_state={self.random_state}, batch_size={self.batch_size}, train_loader size={len(self.train_loader.dataset)}, test_loader size={len(self.test_loader.dataset)})'
+
+# Critic model
+# n x max_len -> embedding -> n x nax_len x max_len - 1 -> LSTM (with hidden size=3)-> n x 2
+class LSTMCritic(nn.Module):
+    def __init__(self, num_embeddings=382, embedding_dim=10, hidden_dim=128, num_layers=3, n_classes=2):
+        super(LSTMCritic, self).__init__()
+        self.num_embeddings = num_embeddings # number of unique words in the vocabulary
+        self.embedding_dim = embedding_dim #
+        self.hidden_dim = hidden_dim # Hidden dimension
+        self.num_layers = num_layers # Number of LSTM layers
+        self.device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+        
+        self.embedding = nn.Embedding(self.num_embeddings, self.embedding_dim).to(self.device)
+        self.lstm = nn.LSTM(self.embedding_dim, self.hidden_dim, num_layers=self.num_layers, batch_first=True, dropout=0.2).to(self.device)
+        self.fc = nn.Linear(self.hidden_dim, n_classes).to(self.device)
+        
+
+    def forward(self, x):
+        # Embedding layer
+        x = self.embedding(x).to(self.device)
+        # LSTM forward pass
+        batch_size = x.size(0)
+        # Initialize hidden and cell states with zeros
+        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)
+        c0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)
+        lstm_out, _ = self.lstm(x, (h0, c0))
+        # Decode the hidden state of the last time step
+        out = lstm_out[:, -1, :]
+        # Linear layer
+        out = self.fc(out)
+        return out
+
 # Critic class
 class Critic(CriticBase):
     def __init__(self, load_trained=False):
@@ -183,6 +188,13 @@ class Critic(CriticBase):
                                     unzip=True)
             self.model = torch.load('critic.pth')
             self.model.eval()
+        else:
+            self.epoch = 0
+            self.epoch_train_loss = []
+            self.optimizer = optim.Adam(self.model.parameters(), lr=1e-5)
+            self.loss_accum_train = AccumulationMeter()
+
+            self.model.train()
 
     def score(self, x):
         '''
@@ -217,8 +229,35 @@ class Critic(CriticBase):
  
 
         return loss_accum.rmse
+    
+    def train(self, x):
+        '''
+        Train the model on one batch of data
+        :param x: train data. For critic training, x will be a tuple of two tensors (data, label). expect a batch of dataloader
+        :return: (mean) loss of the model on the batch
+        '''
+            
+        (feature, label) = x
+        label = convert_labels(label) # convert labels to one-hot encoding
+        feature, label = feature.to(self.device).long(), label.to(self.device)
 
-    def train(self, x, epochs=10, lr=1e-5):
+        outputs = self.model(feature)
+        loss = self.criterion(outputs, label)
+        self.loss_accum_train.update(loss.item(), label.size(0))
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        if self.device == 'cuda': # resolves cudnn RNN backward can only be called in training mode error in NVIDIA GPU
+                torch.backends.cudnn.enabled = False
+        # training loss
+        self.epoch_train_loss.append(self.loss_accum_train.avg)
+                
+        print(f"Epoch {self.epoch}, Train Loss: {self.loss_accum_train.avg:.3f}")
+        self.epoch += 1
+        
+        return self.loss_accum_train.avg
+
+    def train2save(self, x, epochs=10, lr=1e-5):
         '''
         Train the model on one batch of data
         :param x: train data. For critic training, x will be a tuple of two tensors (data, label). expect a batch of dataloader
@@ -248,7 +287,7 @@ class Critic(CriticBase):
                                                      sampler=valid_sampler,
                                                      shuffle=False)
 
-            logging.info('Start training ...')
+            logging.info(f'Start training ...CV index: {cv_index}')
             self.model.train()
             early_stopping = EarlyStopping(tolerance=5, min_delta=10)
             epoch_train_loss = []
@@ -265,7 +304,8 @@ class Critic(CriticBase):
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
-                    torch.backends.cudnn.enabled = False
+                    if self.device == 'cuda': # resolves cudnn RNN backward can only be called in training mode error in NVIDIA GPU
+                        torch.backends.cudnn.enabled = False
                 # training loss
                 epoch_train_loss.append(loss_accum_train.avg)
                 
@@ -275,25 +315,32 @@ class Critic(CriticBase):
 
                 print(f"Epoch {epoch+1}/{epochs}, Train Loss: {loss_accum_train.avg}, Val Loss: {val_loss_avg}")
 
-                # early stopping
-                early_stopping(loss_accum_train.avg, val_loss_avg)
-                if early_stopping.early_stop:
-                    print("We are at epoch:", epoch)
-                    logging.info("Finished training ...Model saved")
-                    torch.save(self.model, 'critic.pth') 
-                    break
+                # # early stopping
+                # early_stopping(loss_accum_train.avg, val_loss_avg)
+                # if early_stopping.early_stop:
+                #     print("We are at epoch:", epoch)
+                #     logging.info("Finished training ...Model saved")
+                #     torch.save(self.model, 'critic.pth') 
+                #     break
         
             cv_index += 1   # increment cv index
         
+        logging.info("Finished training ...Model saved")
+        torch.save(self.model, 'critic.pth') 
+        
         return loss_accum_train.avg
 
-# Test code
-
-processor = MidiDataProcessor(data_directory='.')
+# Test code for critic
+processor = MidiCriticDataProcessor(data_directory='.')
 train_loader, test_loader = processor.prepare_data()
-
 critic = Critic(load_trained=False)
-critic.train(train_loader, epochs=100)
+# Task 1: For training the predictor 
+# critic.train2save(train_loader, epochs=50)
+# Task 2: For testing the possible test code from professor
+epoch = 50
+for i in range(epoch):
+    for x in train_loader:
+        critic.train(x)
 
 ##*************************Task 2*********************#
 #   (Class "Composer" should be a subclass of the class ComposerBase. You must use the exact class name.) 
@@ -303,3 +350,51 @@ critic.train(train_loader, epochs=100)
 #   The function "seq2piano" in "midi2seq.py" can be used to convert the sequence into a midi object, 
 #   which can be written to a midi file and played on a computer. Train the model as a language model 
 #   (autoregression) using the downloaded piano plays.
+class Encoder(nn.Module):
+    def __init__(self, input_dim, emb_dim, hid_dim, n_layers, dropout):
+        super().__init__()
+        
+        self.hid_dim = hid_dim
+        self.n_layers = n_layers
+        
+        self.embedding = nn.Embedding(input_dim, emb_dim)
+        
+        self.rnn = nn.LSTM(emb_dim, hid_dim, n_layers, dropout = dropout)
+        
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, src):
+        
+        embedded = self.dropout(self.embedding(src))
+        
+        outputs, (hidden, cell) = self.rnn(embedded)
+        
+        return hidden, cell
+    
+class Decoder(nn.Module):
+    def __init__(self, output_dim, emb_dim, hid_dim, n_layers, dropout):
+        super().__init__()
+        
+        self.output_dim = output_dim
+        self.hid_dim = hid_dim
+        self.n_layers = n_layers
+        
+        self.embedding = nn.Embedding(output_dim, emb_dim)
+        
+        self.rnn = nn.LSTM(emb_dim, hid_dim, n_layers, dropout = dropout)
+        
+        self.fc_out = nn.Linear(hid_dim, output_dim)
+        
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, input, hidden, cell):
+        
+        input = input.unsqueeze(0)
+        
+        embedded = self.dropout(self.embedding(input))
+                
+        output, (hidden, cell) = self.rnn(embedded, (hidden, cell))
+        
+        prediction = self.fc_out(output.squeeze(0))
+        
+        return prediction, hidden, cell
