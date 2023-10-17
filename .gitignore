@@ -27,7 +27,7 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
-*.pth
+#*.pth
 teslimHW*
 
 
@@ -137,3 +137,4 @@ dmypy.json
 # Pyre type checker
 .pyre/
 client_secrets.json
+Untitled-1.ipynb
