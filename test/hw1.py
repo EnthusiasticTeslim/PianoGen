@@ -21,6 +21,25 @@ from model_base import ComposerBase, CriticBase
 
 from google_drive_downloader import GoogleDriveDownloader
 
+##*************************Task 0*********************#
+"""
+    1.  What is the average score of the generated music? 0.8567
+    
+    
+    2.  One idea to improve the quality of your composed music is to combine the composer with the critic to form a GAN and train the GAN to obtain a better composer. What is the major difficulty to train such a GAN?
+    
+        Balancing the interaction between the generator and critic, coupled with the inherent challenges of ensuring musical coherence and navigating subjective evaluations.
+
+        GANs are notorious for being hard to train due to the min-max game between the generator (composer) and discriminator (critic). The network might not converge or might end up in a state where the generator is not improving.
+
+    3.  Discuss a possible solution that may overcome this major difficulty.
+
+        Instead of solely relying on the critic's feedback, use reinforcement learning where the composer (generator) is rewarded based on the critic's feedback. This approach, known as the "Actor-Critic" method in RL, 
+        can help in better exploration and exploitation of the music space. The composer can be thought of as the 'actor' trying to generate good music, while the critic acts as the 'critic', providing feedback.
+
+        Also, integrating attention mechanisms into the GAN, especially for the composer, to capture long-term dependencies in the music sequences.
+    """
+
 ##*************************Task 1*********************#
 #
 #   (Class "Critic" should be a subclass of the class CriticBase. You must use the exact class name.) 
@@ -192,6 +211,8 @@ class Critic(CriticBase):
         self.criterion = nn.CrossEntropyLoss()
         if self.load_trained:
             print('load model from file ...')
+            # full google drive link: https://drive.google.com/file/d/1PCdNigWgslTn6SuqKxsSY7iUhNF_gfb0/view?usp=share_link
+            # https://drive.google.com/file/d/1PCdNigWgslTn6SuqKxsSY7iUhNF_gfb0/view?usp=share_link
             GoogleDriveDownloader.download_file_from_google_drive(file_id='1PCdNigWgslTn6SuqKxsSY7iUhNF_gfb0',
                                     dest_path='./critic.pth',
                                     unzip=True)
@@ -250,21 +271,16 @@ class Critic(CriticBase):
         (feature, label) = x
         label = convert_labels(label) # convert labels to one-hot encoding
         feature, label = feature.to(self.device).long(), label.to(self.device)
-        epoch_train_loss = []
 
         self.optimizer.zero_grad()
         outputs = self.model(feature)
         loss = self.criterion(outputs, label) 
         loss.backward()
         self.optimizer.step()
-
-        # training loss
-        epoch_train_loss.append(loss.item())
                 
-        print(f"Epoch {self.epoch}, Loss: {np.mean(epoch_train_loss):.3f}")
-        self.epoch += 1
+        # print(f"Loss: {loss.item():.3f}")
         
-        return np.mean(epoch_train_loss)
+        return loss.item()
 
     def train2save(self, x, epochs=10, batch_size=32, fold=5):
         '''
@@ -348,7 +364,7 @@ class ComposerDataset(Dataset):
 
 
 class ComposerLSTM(nn.Module):
-    def __init__(self, num_embeddings=382, embedding_dim=10, hidden_dim=512, num_layers=3, output_size=382):
+    def __init__(self, num_embeddings=382, embedding_dim=20, hidden_dim=512, num_layers=3, output_size=382):
         super(ComposerLSTM, self).__init__()
 
         self.num_embeddings = num_embeddings # number of unique words in the vocabulary
@@ -362,12 +378,15 @@ class ComposerLSTM(nn.Module):
         self.fc = nn.Linear(self.hidden_dim, output_size).to(self.device)
         
     def forward(self, x):
+        batch_size = x.size(0)
         x = self.embedding(x)
-        x, _ = self.lstm(x)
+        #x, _ = self.lstm(x)
+        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)
+        c0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(self.device)
+        x, _ = self.lstm(x, (h0, c0))
         x = self.fc(x)
         return x
-
-
+    
 
 class Composer(ComposerBase):
     def __init__(self, load_trained=False):
@@ -377,40 +396,56 @@ class Composer(ComposerBase):
             Should include code to download the file from Google drive if necessary.
             else, construct the model
         '''    
-    
+        self.num_embeddings = 382
+        self.embedding_dim = 20
+        self.hidden_dim = 512
+        self.num_layers = 3
+        self.output_size = 382
         self.load_trained = load_trained
         self.device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
-        self.model = ComposerLSTM().to(self.device)
+        #print("Using device:", self.device)
+        self.model = ComposerLSTM(
+                                    num_embeddings=self.num_embeddings, embedding_dim=self.embedding_dim, 
+                                    hidden_dim=self.hidden_dim, num_layers=self.num_layers, 
+                                    output_size=self.output_size).to(self.device)
+        
         self.criterion = nn.CrossEntropyLoss()
         if self.load_trained:
-            logging.info('load model from file ...')
-            gdd.download_file_from_google_drive(file_id='18YkTrsqa0dWCVC4PpE2_7q8nN3jxdzhD',
+            print('load model from file ...')
+            # full google drive link: https://drive.google.com/file/d/1a_8t-0tILi9nf9EjdA6TAIjMC9V-0KIu/view?usp=share_link
+            # https://drive.google.com/file/d/1a_8t-0tILi9nf9EjdA6TAIjMC9V-0KIu/view?usp=share_link
+            GoogleDriveDownloader.download_file_from_google_drive(file_id='1a_8t-0tILi9nf9EjdA6TAIjMC9V-0KIu',
                                     dest_path='./composer.pth',
                                     unzip=True)
-            self.model = torch.load('composer.pth')
+            state_dict = torch.load('composer.pth').state_dict()
+            self.model.load_state_dict(state_dict)
+            print('Model loaded')
             self.model.eval()
         else:
             self.epoch = 0
             self.epoch_train_loss = []
-            self.optimizer = optim.Adam(self.model.parameters(), lr=1e-5)
-            self.loss_accum_train = AccumulationMeter()
+            self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
 
             self.model.train()
 
     def train(self, x):
+
+        sequence_length = x.size()[1]
+        sequence, target = x[:, 0:sequence_length-1], x[:, 1:sequence_length+1]
         
-        sequence, target = x
-        sequence, target = sequence.to(self.device), target.to(self.device)  # Move tensors to the device
-                
+        sequence = sequence.to(self.device) # Move tensors to the device
+        target = target.to(self.device)
+  
         self.optimizer.zero_grad()
         outputs = self.model(sequence)
-        loss = self.criterion(outputs.view(-1, outputs.shape[2]), target.view(-1))
+        #loss = self.criterion(outputs.view(-1, outputs.shape[2]), target.view(-1))
+        loss = self.criterion(outputs.reshape(-1, outputs.shape[2]), target.reshape(-1))
         
         loss.backward()
         self.optimizer.step() 
                 
-        print(f'Epoch {self.epoch+1}], Loss: {loss.item():.4f}')
-                    
+        #print(f'Loss: {loss.item():.4f}')
+                
         return loss.item()
     
     def validate(self, val_loader, model):
@@ -430,7 +465,7 @@ class Composer(ComposerBase):
         return np.mean(total_loss)
     
     
-    def train2save(self, x, epochs=10):
+    def train2save(self, x, fold=5, batch=64, epochs=10):
         '''
         Train the model on one batch of data
         :param x: train data. For composer training, x will be a tuple of two tensors (data, label). expect a batch of dataloader
@@ -439,7 +474,7 @@ class Composer(ComposerBase):
 
         # split data for K-fold cross validation to avoid overfitting
         indices = list(range(len(x.dataset)))
-        kf = KFold(n_splits=5, shuffle=True)
+        kf = KFold(n_splits=fold, shuffle=True)
         cv_index = 0
         index_list_train = []
         index_list_valid = []
@@ -450,10 +485,10 @@ class Composer(ComposerBase):
             train_sampler = SubsetRandomSampler(train_indices)
             valid_sampler = SubsetRandomSampler(valid_indices)
 
-            train_loader = DataLoader(x.dataset, batch_size=32,
+            train_loader = DataLoader(x.dataset, batch_size=batch,
                                                        sampler=train_sampler,
                                                        shuffle=False)
-            val_loader = DataLoader(x.dataset, batch_size=32,
+            val_loader = DataLoader(x.dataset, batch_size=batch,
                                                      sampler=valid_sampler,
                                                      shuffle=False)
 
@@ -461,8 +496,8 @@ class Composer(ComposerBase):
             #self.model.train()
             train_total_loss = []
             for epoch in range(epochs):
-                if epoch > 0: # since we initialize when self.load_trained is False, we do not want to re-initialize
-                    self.model.train()
+                #if epoch > 0: # since we initialize when self.load_trained is False, we do not want to re-initialize
+                self.model.train()
                 for sequence, target in train_loader:
                     sequence, target = sequence.to(self.device), target.to(self.device)
                     self.optimizer.zero_grad()
@@ -477,18 +512,24 @@ class Composer(ComposerBase):
                 valid_avg_loss = self.validate(val_loader, self.model)
                 
 
-                print(f"Epoch {epoch+1}/{epochs}, Train Loss: {train_avg_loss}, Val Loss: {valid_avg_loss}")
+                print(f"Epoch {epoch+1}/{epochs}, CV {cv_index}/{fold},  Train Loss: {train_avg_loss:.3f}, Val Loss: {valid_avg_loss:.3f}")
 
             cv_index += 1   # increment cv index
         
-        logging.info("Finished training ...Model saved")
         torch.save(self.model, 'composer.pth') 
+        print("Finished training ...Model saved")
         
         return None
 
     def compose(self, n, temperature=1.0):
+
+        '''
+        Generate a music sequence
+        :param n: length of the sequence to be generated
+        :return: the generated sequence
+        '''
         
-        generated_sequence = [np.random.randint(self.vocab_size)]
+        generated_sequence = [np.random.randint(self.num_embeddings)]
         with torch.no_grad():
             for _ in range(n):
                 input_tensor = torch.tensor([generated_sequence[-1]], dtype=torch.long).to(self.device)

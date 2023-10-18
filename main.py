@@ -5,8 +5,8 @@ import numpy as np
 from torch.utils.data import DataLoader, TensorDataset
 # ***************************************** Test code for critic *****************************************
 is_critic = False
-train2Save = False
-epoch_train2save = 100
+train2Save = True
+epoch_train2save = 50
 
 if is_critic:
     print(" **** Testing critic ...")
@@ -36,6 +36,7 @@ else: # ***************************************** Test code for Composer *******
     print(" **** Testing Composer ...")
     print("......")
     device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+    #print("Using device:", device)
     dir_ = '.'
     maxlen = 200
 
@@ -44,11 +45,13 @@ else: # ***************************************** Test code for Composer *******
     #
     if train2Save:
         print("Training composer to save ...")
+        batch=1024
+        print(batch)
         dataset = ComposerDataset(good_music, sequence_length=200)
-        data_loader = DataLoader(dataset, batch_size=32, shuffle=True)
+        data_loader = DataLoader(dataset, batch_size=batch, shuffle=True)
         #
         cps = Composer(load_trained=False)
-        cps.train2save(data_loader, epochs=epoch_train2save)
+        cps.train2save(data_loader, epochs=epoch_train2save, batch=batch)
     else:
         print("Training composer ...for training purpose only")
         piano_seq = torch.from_numpy(good_music)
@@ -59,7 +62,7 @@ else: # ***************************************** Test code for Composer *******
         cps = Composer()
         for i in range(epoch):
             for x in loader:
-                batch_loss = cps.train(x[0].long())
+                batch_loss = cps.train(x[0].cuda(0).long())
                 epoch_loss.append(batch_loss)
             print(f'Epoch {i}, Epoch Loss: {np.mean(epoch_loss)}')
 

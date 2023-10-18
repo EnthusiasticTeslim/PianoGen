@@ -21,6 +21,29 @@ from model_base import ComposerBase, CriticBase
 
 from google_drive_downloader import GoogleDriveDownloader
 
+## Note
+# While trying to access the Google Drive link for the trained models, you might get an error message. try it at least 3 times and it should work.
+# Google seems to be having authentication issues with the link. I have tried to fix it but it seems to be a Google issue.
+
+##*************************Task 0*********************#
+"""
+    1.  What is the average score of the generated music? 0.8567
+    
+    
+    2.  One idea to improve the quality of your composed music is to combine the composer with the critic to form a GAN and train the GAN to obtain a better composer. What is the major difficulty to train such a GAN?
+    
+        Balancing the interaction between the generator and critic, coupled with the inherent challenges of ensuring musical coherence and navigating subjective evaluations.
+
+        GANs are notorious for being hard to train due to the min-max game between the generator (composer) and discriminator (critic). The network might not converge or might end up in a state where the generator is not improving.
+
+    3.  Discuss a possible solution that may overcome this major difficulty.
+
+        Instead of solely relying on the critic's feedback, use reinforcement learning where the composer (generator) is rewarded based on the critic's feedback. This approach, known as the "Actor-Critic" method in RL, 
+        can help in better exploration and exploitation of the music space. The composer can be thought of as the 'actor' trying to generate good music, while the critic acts as the 'critic', providing feedback.
+
+        Also, integrating attention mechanisms into the GAN, especially for the composer, to capture long-term dependencies in the music sequences.
+    """
+
 ##*************************Task 1*********************#
 #
 #   (Class "Critic" should be a subclass of the class CriticBase. You must use the exact class name.) 
@@ -192,6 +215,8 @@ class Critic(CriticBase):
         self.criterion = nn.CrossEntropyLoss()
         if self.load_trained:
             print('load model from file ...')
+            # full google drive link: https://drive.google.com/file/d/1PCdNigWgslTn6SuqKxsSY7iUhNF_gfb0/view?usp=share_link
+            # https://drive.google.com/file/d/1PCdNigWgslTn6SuqKxsSY7iUhNF_gfb0/view?usp=share_link
             GoogleDriveDownloader.download_file_from_google_drive(file_id='1PCdNigWgslTn6SuqKxsSY7iUhNF_gfb0',
                                     dest_path='./critic.pth',
                                     unzip=True)
@@ -382,6 +407,7 @@ class Composer(ComposerBase):
         self.output_size = 382
         self.load_trained = load_trained
         self.device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu"))
+        #print("Using device:", self.device)
         self.model = ComposerLSTM(
                                     num_embeddings=self.num_embeddings, embedding_dim=self.embedding_dim, 
                                     hidden_dim=self.hidden_dim, num_layers=self.num_layers, 
@@ -390,7 +416,9 @@ class Composer(ComposerBase):
         self.criterion = nn.CrossEntropyLoss()
         if self.load_trained:
             print('load model from file ...')
-            GoogleDriveDownloader.download_file_from_google_drive(file_id='18YkTrsqa0dWCVC4PpE2_7q8nN3jxdzhD',
+            # full google drive link: https://drive.google.com/file/d/1a_8t-0tILi9nf9EjdA6TAIjMC9V-0KIu/view?usp=share_link
+            # https://drive.google.com/file/d/1a_8t-0tILi9nf9EjdA6TAIjMC9V-0KIu/view?usp=share_link
+            GoogleDriveDownloader.download_file_from_google_drive(file_id='1a_8t-0tILi9nf9EjdA6TAIjMC9V-0KIu',
                                     dest_path='./composer.pth',
                                     unzip=True)
             state_dict = torch.load('composer.pth').state_dict()
@@ -414,7 +442,8 @@ class Composer(ComposerBase):
   
         self.optimizer.zero_grad()
         outputs = self.model(sequence)
-        loss = self.criterion(outputs.view(-1, outputs.shape[2]), target.view(-1))
+        #loss = self.criterion(outputs.view(-1, outputs.shape[2]), target.view(-1))
+        loss = self.criterion(outputs.reshape(-1, outputs.shape[2]), target.reshape(-1))
         
         loss.backward()
         self.optimizer.step() 
@@ -440,7 +469,7 @@ class Composer(ComposerBase):
         return np.mean(total_loss)
     
     
-    def train2save(self, x, fold=5, epochs=10):
+    def train2save(self, x, fold=5, batch=64, epochs=10):
         '''
         Train the model on one batch of data
         :param x: train data. For composer training, x will be a tuple of two tensors (data, label). expect a batch of dataloader
@@ -460,10 +489,10 @@ class Composer(ComposerBase):
             train_sampler = SubsetRandomSampler(train_indices)
             valid_sampler = SubsetRandomSampler(valid_indices)
 
-            train_loader = DataLoader(x.dataset, batch_size=32,
+            train_loader = DataLoader(x.dataset, batch_size=batch,
                                                        sampler=train_sampler,
                                                        shuffle=False)
-            val_loader = DataLoader(x.dataset, batch_size=32,
+            val_loader = DataLoader(x.dataset, batch_size=batch,
                                                      sampler=valid_sampler,
                                                      shuffle=False)
 
