@@ -1,4 +1,4 @@
-# 7343 Homework 1
+# [CSC 7343](https://www.lsu.edu/eng/cse/people/faculty/zhang.php) Homework 1
 
 In this homework, your goal is to implement and train two LSTM models, one called piano music composer and the other called critic.  
 
@@ -48,5 +48,9 @@ Note that the above code trains your model from scratch. In addition, you should
  - Load the trained weights into the model class object.
 
 For example, if we do: m = Composer(load_trained=True), m should be a Composer model with the trained weights loaded. We should be able to call m.compose without training it and obtain a piano sequence from the downloaded trained model. 
+
+
+## Note
+Final Grade = 99.00 / 100.00
  
  
